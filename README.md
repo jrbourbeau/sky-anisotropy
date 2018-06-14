@@ -26,3 +26,4 @@ pip install -e sky-anisotropy
 - pandas
 - Healpy
 - dask
+- six
