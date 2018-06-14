@@ -1,0 +1,5 @@
+numpy
+scipy
+pandas
+dask[complete]
+healpy
