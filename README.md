@@ -2,7 +2,7 @@
 
 _Note: this repository is under active development_
 
-Python code for calculating anisotropies vs. sky position
+Python code for calculating distribution anisotropies vs. sky position.
 
 ## Installation
 
@@ -26,3 +26,7 @@ pip install -e sky-anisotropy
 - pandas
 - Healpy
 - dask
+
+## Examples
+
+For a (brief) walkthrough of how to use `sky_anisotropy`, see the [example notebook](example.ipynb).

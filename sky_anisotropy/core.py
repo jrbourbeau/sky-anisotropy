@@ -11,55 +11,10 @@ from dask import delayed
 from dask.diagnostics import ProgressBar
 
 
-def equatorial_to_healpy(ra, dec):
-    """Convert equatorial coordinates (ra, dec) to healpy coordinates (theta, phi)
-
-    Parameters
-    ----------
-    ra : float, array_like
-        Right ascension coordinates in radians.
-    dec : float, array_like
-        Declination coordinates in radians.
-
-    Returns
-    -------
-    theta : float, array_like
-        Healpy theta coordinates in radians.
-    phi : float, array_like
-        Healpy phi coodinates in radians.
-    """
-    theta = np.pi/2 - dec
-    phi = ra
-
-    return theta, phi
-
-
-def healpy_to_equatorial(theta, phi):
-    """Convert healpy coordinates (theta, phi) to equatorial coordinates (ra, dec)
-
-    Parameters
-    ----------
-    theta : float, array_like
-        Healpy theta coordinates in radians.
-    phi : float, array_like
-        Healpy phi coodinates in radians.
-
-    Returns
-    -------
-    ra : float, array_like
-        Right ascension coordinates in radians.
-    dec : float, array_like
-        Declination coordinates in radians.
-    """
-    dec = np.pi/2 - theta
-    ra = phi
-
-    return ra, dec
-
-
-def disc_chi_squared(values, pix, pix_disc, radius=np.deg2rad(10), nside=64,
-                     theta_band=False, bins=None, n_jobs=1, verbose=True):
-    """Calculates chi-squared for binned distributions between on and off regions on the sky
+def on_off_chi_squared(values, pix, pix_center, on_region='disc',
+                       size=np.deg2rad(10), off_region='allsky', nside=64,
+                       bins=None, n_jobs=1, verbose=True):
+    """ Calculates chi-squared for binned distributions between on and off regions on the sky
 
     Parameters
     ----------
@@ -67,17 +22,20 @@ def disc_chi_squared(values, pix, pix_disc, radius=np.deg2rad(10), nside=64,
         Input values to be binned.
     pix : array_like
         Corresponding healpix pixel for each value in values.
-    pix_disc : int, array_like
-        Healpix pixels on which to center on-region discs.
-    radius : float, optional
-        Radius (in radians) of on region disc on sky (default is 0.17 radians,
-        or 10 degrees).
+    pix_center : int, array_like
+        Healpix pixels on which to center on-regions.
+    on_region : {'disc', 'square'}
+        Specifies the on region on the sky to use when calculating chi-squared
+        distribution (default is 'disc').
+    size : float, optional
+        Size (in radians) of on region on sky. Size is the radius for disc on
+        regions and 2*size is the size of a side for square on regions
+        (default is 0.17 radians, or 10 degrees).
+    off_region : {'allsky', 'theta_band', 'opposite'}
+        Specifies the off region on the sky to use when calculating chi-squared
+        distributions (default is 'allsky').
     nside : float, optional
         Number of sides used for healpix map (default is 64).
-    theta_band : bool, optional
-        Option to use full sky off region, or restrict the off region to be
-        within the same theta band of the on region (default is False,
-        will use full sky off region).
     bins : array_like, optional
         Bin edges to use when making binned values disbtritutions (default is
         numpy.linspace(values.min(), values.max(), 20)).
@@ -92,21 +50,26 @@ def disc_chi_squared(values, pix, pix_disc, radius=np.deg2rad(10), nside=64,
         DataFrame with information about the distribution comparison between
         the on and off regions.
     """
+
     values = np.asarray(values)
     pix = np.asarray(pix)
     if values.shape != pix.shape:
         raise ValueError('values and pix must have the same shape, but got '
                          '{} and {}'.format(values.shape, pix.shape))
-    if isinstance(pix_disc, Number):
-        pix_disc = [pix_disc]
-    records = [delayed(disc_chi_squared_single)(values, pix, pix_disc=p,
-                                                radius=radius, nside=nside,
-                                                theta_band=theta_band, bins=bins)
-               for p in pix_disc]
+    if isinstance(pix_center, Number):
+        pix_center = [pix_center]
+    records = [delayed(on_off_chi_squared_single)(values, pix,
+                                                  pix_center=p,
+                                                  on_region=on_region,
+                                                  size=size,
+                                                  off_region=off_region,
+                                                  nside=nside,
+                                                  bins=bins)
+               for p in pix_center]
     results = delayed(pd.DataFrame.from_records)(records)
     scheduler = 'threads' if n_jobs > 1 else 'sync'
     if verbose:
-        msg = 'Calculating chi-squared values for {} regions\n'.format(len(pix_disc))
+        msg = 'Calculating chi-squared values for {} regions\n'.format(len(pix_center))
         sys.stdout.write(msg)
         with ProgressBar():
             results = results.compute(scheduler=scheduler, num_workers=n_jobs)
@@ -116,48 +79,38 @@ def disc_chi_squared(values, pix, pix_disc, radius=np.deg2rad(10), nside=64,
     return results
 
 
-def disc_chi_squared_single(values, pix, pix_disc, radius=np.deg2rad(10), nside=64,
-                            theta_band=False, bins=None):
-    vec_disc = hp.pix2vec(nside=nside, ipix=pix_disc)
-    pix_in_disc = hp.query_disc(nside=nside, vec=vec_disc, radius=radius)
-    in_on_region = np.isin(pix, pix_in_disc)
-    if not np.sum(in_on_region):
-        raise ValueError('No events found in disc centered at pixel {} with '
-                         'radius {}'.format(pix_disc, radius))
-
+def on_off_chi_squared_single(values, pix, pix_center, on_region='disc',
+                              size=np.deg2rad(10), off_region='allsky',
+                              nside=64, bins=None):
+    # Construct on region mask
+    in_on_region = on_region_func(on_region)(pix, pix_center,
+                                             size=size,
+                                             nside=nside)
     # Construct off region mask
-    if not theta_band:
-        in_off_region = ~in_on_region
-    else:
-        theta_in_disc, _ = hp.pix2ang(nside=nside, ipix=pix_in_disc)
-        pix_theta_band = hp.query_strip(nside=nside,
-                                        theta1=theta_in_disc.min(),
-                                        theta2=theta_in_disc.max())
-        pix_off_region = np.setdiff1d(pix_theta_band, pix_in_disc)
-        in_off_region = np.isin(pix, pix_off_region)
-
-    # Energy distribution inside and outside of disc
+    in_off_region = off_region_func(off_region)(pix, pix_center, in_on_region,
+                                                nside=nside)
+    # Value distributions for on and off regions
     if bins is None:
         bins = np.linspace(values.min(), values.max(), 20)
-    counts_in_disc, _ = np.histogram(values[in_on_region], bins=bins)
-    counts_outside_disc, _ = np.histogram(values[in_off_region], bins=bins)
+    counts_on, _ = np.histogram(values[in_on_region], bins=bins)
+    counts_off, _ = np.histogram(values[in_off_region], bins=bins)
 
-    if np.isin([counts_in_disc, counts_outside_disc], 0).any():
-        raise ValueError('Energy distribution has zero counts in a bin')
+    if np.isin([counts_on, counts_off], 0).any():
+        raise ValueError('Binned distribution has zero counts in a bin')
 
     # Want to make sure off region histogram is scaled to the on region histogram
-    alpha = np.sum(counts_in_disc) / np.sum(counts_outside_disc)
-    scaled_counts_outside_disc = alpha * counts_outside_disc
+    alpha = np.sum(counts_on) / np.sum(counts_off)
+    scaled_counts_off = alpha * counts_off
 
     # Calculate chi-squared, p-value, and significance
-    chi_squared = counts_chi_squared(counts_in_disc, scaled_counts_outside_disc)
+    chi_squared = counts_chi_squared(counts_on, scaled_counts_off)
     ndof = len(bins) - 1
     pval = stats.chi2.sf(chi_squared, ndof)
     sig = erfcinv(2 * pval) * np.sqrt(2)
 
-    result = {'pix_disc': pix_disc,
+    result = {'pix_center': pix_center,
               'alpha': alpha,
-              'num_on':  np.sum(counts_in_disc),
+              'num_on':  np.sum(counts_on),
               'chi2': chi_squared,
               'pval': pval,
               'sig': sig,
@@ -166,8 +119,79 @@ def disc_chi_squared_single(values, pix, pix_disc, radius=np.deg2rad(10), nside=
     return result
 
 
+def disc_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
+    """ Circular on region
+    """
+
+    vec_disc = hp.pix2vec(nside=nside, ipix=pix_center)
+    pix_in_disc = hp.query_disc(nside=nside, vec=vec_disc, radius=size)
+    in_on_region = np.isin(pix, pix_in_disc)
+
+    return in_on_region
+
+
+def square_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
+    """ Square on region
+    """
+
+    theta_center, phi_center = hp.pix2ang(nside=nside, ipix=pix_center)
+    theta, phi = hp.pix2ang(nside=nside, ipix=pix)
+    theta_mask = np.logical_and(theta <= theta_center + size,
+                                theta >= theta_center - size)
+    phi_mask = np.logical_and(phi <= phi_center + size,
+                              phi >= phi_center - size)
+    in_on_region = theta_mask & phi_mask
+
+    return in_on_region
+
+
+on_region_funcs = {'disc': disc_on_region,
+                   'square': square_on_region,
+                   }
+
+
+def on_region_func(name):
+    try:
+        return on_region_funcs[name]
+    except KeyError:
+        raise ValueError('Invalid on_region entered ({}). Must be either '
+                         '"disc" or "square".'.format(name))
+
+
+def allsky_off_region(pix, pix_center, on_region_mask, nside=64):
+    """ All sky off region
+    """
+
+    return ~on_region_mask
+
+
+def theta_band_off_region(pix, pix_center, on_region_mask, nside=64):
+    pix_in_disc = pix[on_region_mask]
+    theta_in_disc, _ = hp.pix2ang(nside=nside, ipix=pix_in_disc)
+    theta_disc_min = theta_in_disc.min()
+    theta_disc_max = theta_in_disc.max()
+
+    theta, phi = hp.pix2ang(nside=nside, ipix=pix)
+    theta_band_mask = np.logical_and(theta <= theta_disc_max,
+                                     theta >= theta_disc_min)
+    off_region_mask = np.logical_and(~on_region_mask, theta_band_mask)
+
+    return off_region_mask
+
+
+def opposite_off_region(pix, pix_center, on_region_mask, nside=64):
+    on_region_pix = pix[on_region_mask]
+    theta_on, phi_on = hp.pix2ang(nside=nside, ipix=on_region_pix)
+    phi_off = phi_on + np.pi
+    theta_off = theta_on
+    off_region_pix = hp.ang2pix(nside=nside, theta=theta_off, phi=phi_off)
+    off_region_mask = np.isin(pix, off_region_pix)
+
+    return off_region_mask
+
+
 def counts_chi_squared(counts_on, counts_off):
-    """Calculates reduced chi-squared between two energy histograms
+    """ Calculates reduced chi-squared between two energy histograms
 
     Parameters
     ----------
@@ -182,7 +206,22 @@ def counts_chi_squared(counts_on, counts_off):
     chi_squared : float
         Chi-squared between two input distributions.
     """
+
     assert counts_on.shape == counts_off.shape
     np.testing.assert_allclose(np.sum(counts_on), np.sum(counts_off))
     chi_squared = 2 * np.sum(counts_off - counts_on + (counts_on * np.log(counts_on / counts_off)))
     return chi_squared
+
+
+off_region_funcs = {'allsky': allsky_off_region,
+                    'theta_band': theta_band_off_region,
+                    'opposite': opposite_off_region,
+                    }
+
+
+def off_region_func(name):
+    try:
+        return off_region_funcs[name]
+    except KeyError:
+        raise ValueError('Invalid off_region entered ({}). Must be either '
+                         '"allsky", "theta_band", or "opposite".'.format(name))
