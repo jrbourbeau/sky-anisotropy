@@ -1,6 +1,5 @@
 
 from __future__ import division, print_function
-import sys
 from numbers import Number
 import numpy as np
 import pandas as pd
@@ -8,12 +7,13 @@ import healpy as hp
 from scipy.special import erfcinv
 from scipy import stats
 from dask import delayed
-from dask.diagnostics import ProgressBar
+
+from .coordinates import healpy_to_equatorial
 
 
 def on_off_chi_squared(values, pix, pix_center, on_region='disc',
                        size=np.deg2rad(10), off_region='allsky', nside=64,
-                       bins=None, n_jobs=1, verbose=True):
+                       bins=None, compute=True):
     """ Calculates chi-squared for binned distributions between on and off regions on the sky
 
     Parameters
@@ -39,16 +39,16 @@ def on_off_chi_squared(values, pix, pix_center, on_region='disc',
     bins : array_like, optional
         Bin edges to use when making binned values disbtritutions (default is
         numpy.linspace(values.min(), values.max(), 20)).
-    n_jobs : int, optional
-        Number of jobs to run in parallel (default is 1).
-    verbose : bool, optional
-        Option for verbose output (default is True).
+    compute : boolean, optional
+        Whether to compute result or return a dask delayed object instead
+        (default is True).
 
     Returns
     -------
-    result : pandas.DataFrame
+    results : pandas.DataFrame, dask.delayed.Delayed
         DataFrame with information about the distribution comparison between
-        the on and off regions.
+        the on and off regions. If compute is False, then a dask delayed
+        object that represents the DataFrame calculation is returned.
     """
 
     values = np.asarray(values)
@@ -67,14 +67,9 @@ def on_off_chi_squared(values, pix, pix_center, on_region='disc',
                                                   bins=bins)
                for p in pix_center]
     results = delayed(pd.DataFrame.from_records)(records)
-    scheduler = 'threads' if n_jobs > 1 else 'sync'
-    if verbose:
-        msg = 'Calculating chi-squared values for {} regions\n'.format(len(pix_center))
-        sys.stdout.write(msg)
-        with ProgressBar():
-            results = results.compute(scheduler=scheduler, num_workers=n_jobs)
-    else:
-        results = results.compute(scheduler=scheduler, num_workers=n_jobs)
+
+    if compute:
+        results = results.compute()
 
     return results
 
@@ -135,11 +130,13 @@ def square_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
     """
 
     theta_center, phi_center = hp.pix2ang(nside=nside, ipix=pix_center)
+    ra_center, dec_center = healpy_to_equatorial(theta_center, phi_center)
     theta, phi = hp.pix2ang(nside=nside, ipix=pix)
     theta_mask = np.logical_and(theta <= theta_center + size,
                                 theta >= theta_center - size)
-    phi_mask = np.logical_and(phi <= phi_center + size,
-                              phi >= phi_center - size)
+    size_phi = size / np.cos(dec_center)
+    phi_mask = np.logical_and(phi <= phi_center + size_phi,
+                              phi >= phi_center - size_phi)
     in_on_region = theta_mask & phi_mask
 
     return in_on_region
