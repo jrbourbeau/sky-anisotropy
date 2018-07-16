@@ -11,17 +11,17 @@ from dask import delayed
 from .coordinates import healpy_to_equatorial
 
 
-def on_off_chi_squared(values, pix, pix_center, on_region='disc',
+def on_off_chi_squared(samples, pix, pix_center, on_region='disc',
                        size=np.deg2rad(10), off_region='allsky', nside=64,
-                       bins=None, compute=True):
+                       bins=None, hist_func=None, compute=True):
     """ Calculates chi-squared for binned distributions between on and off regions on the sky
 
     Parameters
     ----------
-    values : array_like
-        Input values to be binned.
+    samples : array_like
+        Input samples to be passed to numpy.histogramdd.
     pix : array_like
-        Corresponding healpix pixel for each value in values.
+        Corresponding healpix pixel for each item in samples.
     pix_center : int, array_like
         Healpix pixels on which to center on-regions.
     on_region : {'disc', 'square'}
@@ -37,8 +37,12 @@ def on_off_chi_squared(values, pix, pix_center, on_region='disc',
     nside : float, optional
         Number of sides used for healpix map (default is 64).
     bins : array_like, optional
-        Bin edges to use when making binned values disbtritutions (default is
-        numpy.linspace(values.min(), values.max(), 20)).
+        Bin edges to use when making binned samples disbtritutions (default is
+        numpy.linspace(samples.min(), samples.max(), 20)).
+    hist_func : function, optional
+        Function to map from counts histogram to counts distribution for
+        chi-squared calculation. This could be, for instance, a function that
+        performs a counts distribution unfolding (default is None).
     compute : boolean, optional
         Whether to compute result or return a dask delayed object instead
         (default is True).
@@ -51,20 +55,21 @@ def on_off_chi_squared(values, pix, pix_center, on_region='disc',
         object that represents the DataFrame calculation is returned.
     """
 
-    values = np.asarray(values)
+    samples = np.asarray(samples)
     pix = np.asarray(pix)
-    if values.shape != pix.shape:
-        raise ValueError('values and pix must have the same shape, but got '
-                         '{} and {}'.format(values.shape, pix.shape))
+    if samples.shape[0] != pix.shape[0]:
+        raise ValueError('samples and pix must have the same shape, but got '
+                         '{} and {}'.format(samples.shape, pix.shape))
     if isinstance(pix_center, Number):
         pix_center = [pix_center]
-    records = [delayed(on_off_chi_squared_single)(values, pix,
+    records = [delayed(on_off_chi_squared_single)(samples, pix,
                                                   pix_center=p,
                                                   on_region=on_region,
                                                   size=size,
                                                   off_region=off_region,
                                                   nside=nside,
-                                                  bins=bins)
+                                                  bins=bins,
+                                                  hist_func=hist_func)
                for p in pix_center]
     results = delayed(pd.DataFrame.from_records)(records)
 
@@ -74,9 +79,9 @@ def on_off_chi_squared(values, pix, pix_center, on_region='disc',
     return results
 
 
-def on_off_chi_squared_single(values, pix, pix_center, on_region='disc',
+def on_off_chi_squared_single(samples, pix, pix_center, on_region='disc',
                               size=np.deg2rad(10), off_region='allsky',
-                              nside=64, bins=None):
+                              nside=64, bins=None, hist_func=None):
     # Construct on region mask
     in_on_region = on_region_func(on_region)(pix, pix_center,
                                              size=size,
@@ -86,12 +91,26 @@ def on_off_chi_squared_single(values, pix, pix_center, on_region='disc',
                                                 nside=nside)
     # Value distributions for on and off regions
     if bins is None:
-        bins = np.linspace(values.min(), values.max(), 20)
-    counts_on, _ = np.histogram(values[in_on_region], bins=bins)
-    counts_off, _ = np.histogram(values[in_off_region], bins=bins)
+        bins = np.linspace(samples.min(), samples.max(), 20)
+    if isinstance(bins, np.ndarray) and bins.ndim == 1:
+        bins = [bins]
 
-    if np.isin([counts_on, counts_off], 0).any():
-        raise ValueError('Binned distribution has zero counts in a bin')
+    if samples.ndim == 1:
+        samples = samples.reshape(-1, 1)
+
+    counts_on, _ = np.histogramdd(samples[in_on_region], bins=bins)
+    counts_off, _ = np.histogramdd(samples[in_off_region], bins=bins)
+
+    if hist_func is not None:
+        counts_on = hist_func(counts_on)
+        counts_off = hist_func(counts_off)
+
+    if 0 in counts_on:
+        raise ValueError('Binned distribution for on region centered at pixel '
+                         '{} has zero counts in a bin'.format(pix_center))
+    if 0 in counts_off:
+        raise ValueError('Binned distribution for off region centered at pixel '
+                         '{} has zero counts in a bin'.format(pix_center))
 
     # Want to make sure off region histogram is scaled to the on region histogram
     alpha = np.sum(counts_on) / np.sum(counts_off)
@@ -99,7 +118,7 @@ def on_off_chi_squared_single(values, pix, pix_center, on_region='disc',
 
     # Calculate chi-squared, p-value, and significance
     chi_squared = counts_chi_squared(counts_on, scaled_counts_off)
-    ndof = len(bins) - 1
+    ndof = counts_on.shape[0]
     pval = stats.chi2.sf(chi_squared, ndof)
     sig = erfcinv(2 * pval) * np.sqrt(2)
 
@@ -109,6 +128,7 @@ def on_off_chi_squared_single(values, pix, pix_center, on_region='disc',
               'chi2': chi_squared,
               'pval': pval,
               'sig': sig,
+              'ndof': ndof,
               }
 
     return result
@@ -125,18 +145,29 @@ def disc_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
     return in_on_region
 
 
+def normalize_angle(x):
+    x = (x + 2 * np.pi) % (2 * np.pi)
+    return x
+
+
 def square_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
     """ Square on region
     """
 
+    raise NotImplementedError()
+
     theta_center, phi_center = hp.pix2ang(nside=nside, ipix=pix_center)
     ra_center, dec_center = healpy_to_equatorial(theta_center, phi_center)
     theta, phi = hp.pix2ang(nside=nside, ipix=pix)
+    phi = normalize_angle(phi)
     theta_mask = np.logical_and(theta <= theta_center + size,
                                 theta >= theta_center - size)
     size_phi = size / np.cos(dec_center)
-    phi_mask = np.logical_and(phi <= phi_center + size_phi,
-                              phi >= phi_center - size_phi)
+    phi_upper = phi_center + size_phi
+    phi_upper = normalize_angle(phi_upper)
+    phi_lower = phi_center - size_phi
+    phi_lower = normalize_angle(phi_lower)
+    phi_mask = np.logical_and(phi <= phi_upper, phi >= phi_lower)
     in_on_region = theta_mask & phi_mask
 
     return in_on_region
