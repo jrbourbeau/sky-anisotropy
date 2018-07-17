@@ -25,9 +25,10 @@ install:
     - conda info -a
     - conda create -q --name test-environment python=$TRAVIS_PYTHON_VERSION
     - source activate test-environment
-    - conda install -c conda-forge numpy scipy pandas dask healpy
+    - pip install -r requirements.txt
     # Install sky_anisotropy
-    - pip install -e .
+    - pip install --no-deps -e .
+    - python -c 'import sky_anisotropy; sky_anisotropy.print_versions()'
     # Install dev dependencies
     - pip install flake8
 

@@ -21,11 +21,26 @@ pip install -e sky-anisotropy
 
 ### Dependencies
 
+The dependencies for `sky-anisotropy` are:
+
 - NumPy
 - SciPy
 - pandas
 - Healpy
 - dask
+- xarray
+
+They can be installed using `pip`:
+
+```bash
+pip install -r requirements.txt
+```
+
+or `conda`:
+
+```bash
+conda install --file requirements.txt
+```
 
 ## Examples
 
