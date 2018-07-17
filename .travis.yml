@@ -28,6 +28,7 @@ install:
     - pip install -r requirements.txt
     # Install sky_anisotropy
     - pip install --no-deps -e .
+    - python -c 'import sky_anisotropy; sky_anisotropy.print_versions()'
     # Install dev dependencies
     - pip install flake8
 
