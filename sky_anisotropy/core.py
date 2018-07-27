@@ -257,7 +257,6 @@ def off_region_func(name):
 
         
 def disc_theta_band_off_region(pix, pix_center, size=np.radians(10), nside=64):
-    
     theta_center, phi_center = hp.pix2ang(nside, pix_center)
     num_disc = np.pi*np.sin(theta_center)//size+1
     num_disc=int(num_disc)
