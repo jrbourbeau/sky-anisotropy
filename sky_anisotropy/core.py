@@ -87,7 +87,7 @@ def on_off_chi_squared_single(samples, pix, pix_center, on_region='disc',
                                              size=size,
                                              nside=nside)
     # Construct off region mask
-    in_off_region = off_region_func(off_region)(pix, pix_center, in_on_region,
+    in_off_region = off_region_func(off_region)(pix, pix_center, in_on_region, size,
                                                 nside=nside)
     # Value distributions for on and off regions
     if bins is None:
@@ -186,14 +186,14 @@ def on_region_func(name):
                          '"disc" or "square".'.format(name))
 
 
-def allsky_off_region(pix, pix_center, on_region_mask, nside=64):
+def allsky_off_region(pix, pix_center, on_region_mask, size, nside=64):
     """ All sky off region
     """
 
     return ~on_region_mask
 
 
-def theta_band_off_region(pix, pix_center, on_region_mask, nside=64):
+def theta_band_off_region(pix, pix_center, on_region_mask, size, nside=64):
     pix_in_disc = pix[on_region_mask]
     theta_in_disc, _ = hp.pix2ang(nside=nside, ipix=pix_in_disc)
     theta_disc_min = theta_in_disc.min()
@@ -207,7 +207,7 @@ def theta_band_off_region(pix, pix_center, on_region_mask, nside=64):
     return off_region_mask
 
 
-def opposite_off_region(pix, pix_center, on_region_mask, nside=64):
+def opposite_off_region(pix, pix_center, on_region_mask, size, nside=64):
     on_region_pix = pix[on_region_mask]
     theta_on, phi_on = hp.pix2ang(nside=nside, ipix=on_region_pix)
     phi_off = phi_on + np.pi
