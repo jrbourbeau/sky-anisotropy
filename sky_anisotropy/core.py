@@ -163,11 +163,11 @@ def square_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
     phi_upper = phi_center + size_phi
     phi_upper = normalize_angle(phi_upper)
     phi_lower = phi_center - size_phi
-    phi_lower = normalize_angle(phi_lower)    
+    phi_lower = normalize_angle(phi_lower)
     if (phi_center > size_phi and phi_center < 2 * np.pi - size_phi):
         phi_mask = np.logical_and(phi <= phi_upper, phi >= phi_lower)
     else:
-        phi_mask = ~np.logical_and(phi >= phi_upper, phi <= phi_lower)        
+        phi_mask = ~np.logical_and(phi >= phi_upper, phi <= phi_lower)
     in_on_region = theta_mask & phi_mask
 
     return in_on_region
@@ -221,7 +221,7 @@ def opposite_off_region(pix, pix_center, on_region_mask, size, nside=64):
 def disc_theta_band_off_region(pix, pix_center, on_region_mask, size=np.radians(10), nside=64):
     theta_center, phi_center = hp.pix2ang(nside, pix_center)
     num_disc = np.pi * np.sin(theta_center) // size + 1
-    num_disc=int(num_disc)
+    num_disc = int(num_disc)
     phi_disc_cent = np.linspace(phi_center, phi_center + 2 * np.pi, num_disc)
     theta_disc_cent = np.full(num_disc, theta_center)
 
