@@ -153,9 +153,6 @@ def normalize_angle(x):
 def square_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
     """ Square on region
     """
-
-    raise NotImplementedError()
-
     theta_center, phi_center = hp.pix2ang(nside=nside, ipix=pix_center)
     ra_center, dec_center = healpy_to_equatorial(theta_center, phi_center)
     theta, phi = hp.pix2ang(nside=nside, ipix=pix)
@@ -166,8 +163,11 @@ def square_on_region(pix, pix_center, size=np.deg2rad(10), nside=64):
     phi_upper = phi_center + size_phi
     phi_upper = normalize_angle(phi_upper)
     phi_lower = phi_center - size_phi
-    phi_lower = normalize_angle(phi_lower)
-    phi_mask = np.logical_and(phi <= phi_upper, phi >= phi_lower)
+    phi_lower = normalize_angle(phi_lower)    
+    if (phi_center > size_phi and phi_center < 2 * np.pi - size_phi):
+        phi_mask = np.logical_and(phi <= phi_upper, phi >= phi_lower)
+    else:
+        phi_mask = ~np.logical_and(phi >= phi_upper, phi <= phi_lower)        
     in_on_region = theta_mask & phi_mask
 
     return in_on_region
@@ -218,6 +218,24 @@ def opposite_off_region(pix, pix_center, on_region_mask, nside=64):
     return off_region_mask
 
 
+def disc_theta_band_off_region(pix, pix_center, on_region_mask, size=np.radians(10), nside=64):
+    theta_center, phi_center = hp.pix2ang(nside, pix_center)
+    num_disc = np.pi * np.sin(theta_center) // size + 1
+    num_disc=int(num_disc)
+    phi_disc_cent = np.linspace(phi_center, phi_center + 2 * np.pi, num_disc)
+    theta_disc_cent = np.full(num_disc, theta_center)
+
+    disc_vec = hp.ang2vec(theta_disc_cent, phi_disc_cent)
+    disc_list = []
+    for i in range(1, len(disc_vec) - 1):
+        discs = hp.query_disc(nside, disc_vec[i, :], size)
+        disc_list.append(discs)
+    disc_arr = np.concatenate(disc_list)
+    in_off_region = np.isin(pix, disc_arr)
+
+    return in_off_region
+
+
 def counts_chi_squared(counts_on, counts_off):
     """ Calculates reduced chi-squared between two energy histograms
 
@@ -254,20 +272,3 @@ def off_region_func(name):
     except KeyError:
         raise ValueError('Invalid off_region entered ({}). Must be either '
                          '"allsky", "theta_band", or "opposite".'.format(name))
-
-        
-def disc_theta_band_off_region(pix, pix_center, size=np.radians(10), nside=64):
-    theta_center, phi_center = hp.pix2ang(nside, pix_center)
-    num_disc = np.pi*np.sin(theta_center)//size+1
-    num_disc=int(num_disc)
-    phi_disc_cent = np.linspace(phi_center, phi_center+2*np.pi, num_disc)
-    theta_disc_cent = np.full(num_disc, theta_center)
-    
-    disc_vec = hp.ang2vec(theta_disc_cent, phi_disc_cent)
-    disc_list = []
-    for i in range(1, len(disc_vec)-1):
-        discs = hp.query_disc(nside, disc_vec[i,:], size)
-        disc_list.append(discs)
-    disc_arr = np.concatenate(disc_list)
-    in_off_region = np.isin(pix,disc_arr)
-    return in_off_region
