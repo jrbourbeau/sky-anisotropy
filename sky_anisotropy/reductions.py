@@ -5,23 +5,6 @@ import numpy as np
 import healpy as hp
 
 
-def region_hist(data, mask):
-    """ Extract region on sky from input data
-
-    Parameters
-    ----------
-    data : numpy.ndarray or xarray.DataArray
-        Input data.
-    mask : array_like
-        Boolean mask that filters out region pixels (i.e. mask should be
-        True for pixels in the region and False otherwise)
-    Returns
-    -------
-    data : numpy.ndarray or xarray.DataArray
-    """
-    return data[..., mask].sum(axis=-1)
-
-
 def digitize_columns(data, bins):
     digitized = np.empty_like(data, dtype=int)
     for i in range(len(bins)):
@@ -32,6 +15,15 @@ def digitize_columns(data, bins):
 
 def binned_skymaps(data, pix, bins, nside=64):
     """ Create skymap of binned data
+
+    Parameters
+    ----------
+    data : array_like
+        Input data to be binned.
+    pix : array_like
+        Corresponding healpix pixel for each item in data.
+    bins : array_like, optional
+        Bin edges to use when making binned maps.
     """
 
     data_digitized = digitize_columns(data, bins=bins)
@@ -40,7 +32,7 @@ def binned_skymaps(data, pix, bins, nside=64):
     npix = hp.nside2npix(nside)
     shape.append(npix)
 
-    maps = np.zeros(shape, dtype=np.uint16)
+    maps = np.zeros(shape, dtype=np.int)
     for bin_idx in itertools.product(*map(range, shape[:-1])):
         in_bins = [data_digitized[:, i] == bin_idx[i] for i in range(data_digitized.shape[1])]
         bin_mask = np.logical_and(*in_bins)

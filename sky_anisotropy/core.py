@@ -18,10 +18,9 @@ def on_off_chi_squared(binned_maps, pix_center, on_region='disc',
 
     Parameters
     ----------
-    samples : array_like
-        Input samples to be passed to numpy.histogramdd.
-    pix : array_like
-        Corresponding healpix pixel for each item in samples.
+    binned_maps : array_like
+        Array of Healpix maps. See ``sky_anisotropy.reductions.binned_skymaps``
+        for more information.
     pix_center : int, array_like
         Healpix pixels on which to center on-regions.
     on_region : {'disc', 'square'}
@@ -31,14 +30,11 @@ def on_off_chi_squared(binned_maps, pix_center, on_region='disc',
         Size (in radians) of on region on sky. Size is the radius for disc on
         regions and 2*size is the size of a side for square on regions
         (default is 0.17 radians, or 10 degrees).
-    off_region : {'allsky', 'theta_band', 'opposite'}
+    off_region : {'allsky', 'theta_band'}
         Specifies the off region on the sky to use when calculating chi-squared
         distributions (default is 'allsky').
     nside : float, optional
         Number of sides used for healpix map (default is 64).
-    bins : array_like, optional
-        Bin edges to use when making binned samples disbtritutions (default is
-        numpy.linspace(samples.min(), samples.max(), 20)).
     hist_func : function, optional
         Function to map from counts histogram to counts distribution for
         chi-squared calculation. This could be, for instance, a function that
@@ -194,8 +190,6 @@ def counts_chi_squared_uncertainties(counts_on, counts_on_err, counts_off,
 
     assert counts_on.shape == counts_off.shape
     np.testing.assert_allclose(np.sum(counts_on), np.sum(counts_off))
-
-    # chi_squared = np.sum((counts_on - counts_off) ** 2 / counts_off_err ** 2)
     chi_squared = np.sum((counts_on - counts_off) ** 2 / counts_on_err ** 2)
 
     return chi_squared
